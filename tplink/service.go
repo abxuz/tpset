@@ -56,6 +56,13 @@ func (s *Service) request(ctx context.Context, uri string, body string) ([]byte,
 	return data, nil
 }
 
+func SimplifyMAC(mac string) string {
+	mac = strings.ToLower(mac)
+	mac = strings.ReplaceAll(mac, "-", "")
+	mac = strings.ReplaceAll(mac, ":", "")
+	return mac
+}
+
 type escaper interface {
 	escapeList() []*string
 }
