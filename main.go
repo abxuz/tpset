@@ -1,16 +1,13 @@
 package main
 
 import (
-	"context"
 	"flag"
-	"fmt"
-	"log"
+	"net/http"
 	"os"
-	"strings"
-	"time"
-	"tpset/tplink"
+	"tpset/assets"
 
-	"github.com/abxuz/b-tools/bmap"
+	"github.com/gin-contrib/static"
+	"github.com/gin-gonic/gin"
 )
 
 type Setting struct {
@@ -23,6 +20,41 @@ type Setting struct {
 }
 
 func main() {
+	var (
+		addr string
+	)
+
+	flag.StringVar(&addr, "l", "127.0.0.1:10000", "listen address")
+	flag.Parse()
+
+	debug := os.Getenv("DEBUG") == "1"
+
+	if !debug {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	r := gin.New()
+	r.Use(gin.Recovery())
+
+	{
+		var fs static.ServeFileSystem
+		if debug {
+			fs = static.LocalFile("assets/html", false)
+		} else {
+			fs = static.EmbedFolder(assets.Html, "html")
+		}
+		r.Use(static.Serve("/", fs))
+	}
+
+	s := &http.Server{
+		Addr:    addr,
+		Handler: r,
+	}
+	s.ListenAndServe()
+}
+
+/*
+func main1() {
 	var (
 		csv      string
 		ac       string
@@ -260,3 +292,4 @@ func main() {
 	}
 	fmt.Println("all done.")
 }
+*/
