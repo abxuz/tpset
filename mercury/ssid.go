@@ -78,81 +78,118 @@ func (s *Service) ListSSID(ctx context.Context) ([]SSID, error) {
 	return list, nil
 }
 
-/*
 func (s *Service) AddSSID(ctx context.Context, ssid SSID) error {
-	escape(&ssid)
-	if ssid.UpLimit == "0" || ssid.UpLimit == "" {
-		ssid.UpLimit = "128"
+	if ssid.Enable != "" && ssid.Enable != "0" {
+		ssid.Enable = "1"
+	} else {
+		ssid.Enable = "0"
 	}
-	if ssid.DownLimit == "0" || ssid.DownLimit == "" {
-		ssid.DownLimit = "128"
+
+	if ssid.Isolation != "" && ssid.Isolation != "0" {
+		ssid.Isolation = "1"
+	} else {
+		ssid.Isolation = "0"
 	}
-	body := `{
-	"method":"add",
-	"apmng_wserv":{
-		"table":"wlan_serv",
-		"para":{
-			"serv_id":"` + ssid.ServId + `",
-			"enable":"` + ssid.Enable + `",
-			"ssid":"` + ssid.SSID + `",
-			"ssid_code_type":"` + ssid.SSIDCodeType + `",
-			"desc":"` + ssid.Desc + `",
-			"isolate":"` + ssid.Isolate + `",
-			"ssidbrd":"` + ssid.SSIDBrd + `",
-			"encryption":"` + ssid.Encryption + `",
-			"auth":"` + ssid.Auth + `",
-			"cipher":"` + ssid.Cipher + `",
-			"key_update_intv":"` + ssid.KeyUpdateIntv + `",
-			"key":"` + ssid.Key + `",
-			"bw_ctrl_enable":"` + ssid.BwCtrlEnable + `",
-			"bw_ctrl_mode":"` + ssid.BwCtrlMode + `",
-			"up_limit":"` + ssid.UpLimit + `",
-			"down_limit":"` + ssid.DownLimit + `",
-			"auto_bind":"` + ssid.AutoBind + `",
-			"default_bind_freq":"` + ssid.DefaultBindFreq + `",
-			"default_bind_vlan":"` + ssid.DefaultBindVlan + `"
-		}
-	}}`
-	_, err := s.ds(ctx, body)
+
+	if ssid.Hide != "" && ssid.Hide != "0" {
+		ssid.Hide = "1"
+	} else {
+		ssid.Hide = "0"
+	}
+
+	if ssid.SecType == "" {
+		ssid.SecType = "0"
+	}
+
+	data := `{
+    "method": "add",
+    "params": {
+        "index": 0,
+        "old": "add",
+        "new": {
+            "id": "",
+            "enable": "` + ssid.Enable + `",
+            "ssid": "` + ssid.SSID + `",
+            "encode": "1",
+            "descr": "` + ssid.Descr + `",
+            "isolation": "` + ssid.Isolation + `",
+            "hide": "` + ssid.Hide + `",
+            "sec_type": "` + ssid.SecType + `",
+            "auth_type": "3",
+            "encrypt_alg": "0",
+            "key_upt_intv": "86400",
+            "psk": "` + ssid.PrivKey + `",
+            "bw_enable": "0",
+            "bw_mode": "0",
+            "upstream_rate": "128",
+            "downstream_rate": "128"
+        },
+        "id": "add"
+    }
+}`
+	_, err := s.request(ctx, "/admin/ac_wservice?form=wserv_list", data)
 	return err
 }
 
-func (s *Service) SetSSID(ctx context.Context, ssid SSID) error {
-	escape(&ssid)
-	if ssid.UpLimit == "0" || ssid.UpLimit == "" {
-		ssid.UpLimit = "128"
+func (s *Service) SetSSID(ctx context.Context, prev, cur SSID) error {
+	if cur.UpstreamRate == "" || cur.UpstreamRate == "0" {
+		cur.UpstreamRate = "128"
 	}
-	if ssid.DownLimit == "0" || ssid.DownLimit == "" {
-		ssid.DownLimit = "128"
+
+	if cur.DownstreamRate == "" || cur.DownstreamRate == "0" {
+		cur.DownstreamRate = "128"
 	}
-	body := `{
-	"method":"set",
-	"apmng_wserv":{
-		"table":"wlan_serv",
-		"filter":[{"serv_id":"` + ssid.ServId + `"}],
-		"para":{
-			"serv_id":"` + ssid.ServId + `",
-			"enable":"` + ssid.Enable + `",
-			"ssid":"` + ssid.SSID + `",
-			"ssid_code_type":"` + ssid.SSIDCodeType + `",
-			"desc":"` + ssid.Desc + `",
-			"isolate":"` + ssid.Isolate + `",
-			"ssidbrd":"` + ssid.SSIDBrd + `",
-			"encryption":"` + ssid.Encryption + `",
-			"auth":"` + ssid.Auth + `",
-			"cipher":"` + ssid.Cipher + `",
-			"key_update_intv":"` + ssid.KeyUpdateIntv + `",
-			"key":"` + ssid.Key + `",
-			"bw_ctrl_enable":"` + ssid.BwCtrlEnable + `",
-			"bw_ctrl_mode":"` + ssid.BwCtrlMode + `",
-			"up_limit":"` + ssid.UpLimit + `",
-			"down_limit":"` + ssid.DownLimit + `",
-			"auto_bind":"` + ssid.AutoBind + `",
-			"default_bind_freq":"` + ssid.DefaultBindFreq + `",
-			"default_bind_vlan":"` + ssid.DefaultBindVlan + `"
-		}
-	}}`
-	_, err := s.ds(ctx, body)
+
+	data := `{
+	"method": "set",
+	"params": {
+		"index": 0,
+		"old": {
+			"enable": "` + prev.Enable + `",
+			"ssid": "` + prev.SSID + `",
+			"encode": "` + prev.Encode + `",
+			"descr": "` + prev.Descr + `",
+			"isolation": "` + prev.Isolation + `",
+			"hide": "` + prev.Hide + `",
+			"sec_type": "` + prev.SecType + `",
+			"auth_type": "` + prev.AuthType + `",
+			"encrypt_alg": "` + prev.EncryptAlg + `",
+			"radius_serv": "` + prev.RadiusServ + `",
+			"radius_port": "` + prev.RadiusPort + `",
+			"radius_acct_port": "` + prev.RadiusAcctPort + `",
+			"radius_pwd": "` + prev.RadiusPwd + `",
+			"key_upt_intv": "` + prev.KeyUptIntv + `",
+			"psk": "` + prev.Psk + `",
+			"bw_enable": "` + prev.BwEnable + `",
+			"bw_mode": "` + prev.BwMode + `",
+			"upstream_rate": "` + prev.UpstreamRate + `",
+			"downstream_rate": "` + prev.DownstreamRate + `"
+		},
+		"new": {
+			"id": "` + cur.Id + `",
+			"enable": "` + cur.Enable + `",
+			"ssid": "` + cur.SSID + `",
+			"encode": "` + cur.Encode + `",
+			"descr": "` + cur.Descr + `",
+			"isolation": "` + cur.Isolation + `",
+			"hide": "` + cur.Hide + `",
+			"sec_type": "` + cur.SecType + `",
+			"auth_type": "` + cur.AuthType + `",
+			"encrypt_alg": "` + cur.EncryptAlg + `",
+			"radius_serv": "` + cur.RadiusServ + `",
+			"radius_port": "` + cur.RadiusPort + `",
+			"radius_acct_port": "` + cur.RadiusAcctPort + `",
+			"radius_pwd": "` + cur.RadiusPwd + `",
+			"key_upt_intv": "` + cur.KeyUptIntv + `",
+			"psk": "` + cur.Psk + `",
+			"bw_enable": "` + cur.BwEnable + `",
+			"bw_mode": "` + cur.BwMode + `",
+			"upstream_rate": "` + cur.UpstreamRate + `",
+			"downstream_rate": "` + cur.DownstreamRate + `"
+		},
+		"id": "` + prev.Id + `"
+	}
+}`
+	_, err := s.request(ctx, "/admin/ac_wservice?form=wserv_list", data)
 	return err
 }
-*/
