@@ -10,8 +10,7 @@
     <title>TP Set</title>
     <style>
         #app {
-            margin: 0 auto;
-            width: 400px;
+            width: 100%;
         }
 
         .el-select .el-input {
@@ -26,7 +25,12 @@
 
 <body>
     <div id="app" style="margin-top: 20px;">
-        <el-form :model="form" label-width="auto" size="small" v-loading="loading">
+        <div style="width: 800px;margin: 10px auto;">
+            <el-input type="textarea" v-model="result" :readonly="true"
+                :autosize="{ minRows: 6, maxRows: 10 }"></el-input>
+        </div>
+        <el-form :model="form" label-width="auto" size="small" v-loading="loading"
+            style="width: 400px;margin: 10px auto;">
             <el-form-item label="AC地址">
                 <el-input v-model="form.addr" placeholder="如：http://100.64.63.42:6080"></el-input>
             </el-form-item>
@@ -48,8 +52,6 @@
                 <el-button type="primary" @click="submit">提交</el-button>
             </el-form-item>
         </el-form>
-        <el-input type="textarea" placeholder="结果" v-model="result" :readonly="true"
-            :autosize="{ minRows: 6, maxRows: 10 }"></el-input>
     </div>
     <script>
         new Vue({
@@ -63,7 +65,7 @@
                         file: null,
                     },
                     loading: false,
-                    result: '',
+                    result: '在开始操作前，请确保没有在别的任何地方登陆了AC，开始操作后也不要对AC有任何登陆及其他操作！！！',
                 }
             },
             methods: {

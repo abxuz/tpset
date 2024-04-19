@@ -1,6 +1,7 @@
 package mercury
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,6 +22,28 @@ type Service struct {
 
 func NewService(addr string) *Service {
 	return &Service{addr: addr}
+}
+
+func (s *Service) IsAC(ctx context.Context) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.addr+"/webpages/index.html", nil)
+	if err != nil {
+		return false, err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	if err != nil {
+		return false, err
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+
+	return bytes.Contains(data, []byte("mercury")), nil
 }
 
 func (s *Service) request(ctx context.Context, uri string, data string) ([]byte, error) {

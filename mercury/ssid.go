@@ -118,7 +118,7 @@ func (s *Service) AddSSID(ctx context.Context, ssid SSID) error {
             "auth_type": "3",
             "encrypt_alg": "0",
             "key_upt_intv": "86400",
-            "psk": "` + ssid.PrivKey + `",
+            "psk": "` + ssid.Psk + `",
             "bw_enable": "0",
             "bw_mode": "0",
             "upstream_rate": "128",

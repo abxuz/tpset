@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -13,21 +15,15 @@ import (
 	"sync"
 	"time"
 	"tpset/assets"
+	"tpset/mercury"
+	"tpset/tplink"
 
 	_ "time/tzdata"
 
+	"github.com/abxuz/b-tools/bmap"
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
 )
-
-type Setting struct {
-	APMac        string
-	APName       string
-	WiredVlan    string
-	WirelessVlan string
-	SSID         string
-	Password     string
-}
 
 func init() {
 	loc, err := time.LoadLocation("Asia/Shanghai")
@@ -71,313 +67,319 @@ func main() {
 		Handler: r,
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		defer cancel()
+		if err := s.ListenAndServe(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+	}()
+
 	if runtime.GOOS == "darwin" {
 		go func() {
 			port := strings.LastIndex(addr, ":")
 			if port < 0 {
 				return
 			}
-			time.Sleep(time.Second)
+
+			timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), time.Second)
+			defer timeoutCancel()
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-timeoutCtx.Done():
+			}
 			exec.Command("open", "http://localhost:"+addr[port+1:]).Run()
 		}()
 	}
 
-	s.ListenAndServe()
+	<-ctx.Done()
+}
+
+type mySSID struct {
+	ssid     string
+	password string
+}
+
+func (s *mySSID) GetId() string {
+	return ""
+}
+
+func (s *mySSID) GetSSID() string {
+	return s.ssid
+}
+
+func (s *mySSID) GetPassword() string {
+	return s.password
+}
+
+func (s *mySSID) SetPassword(pwd string) {
+	s.password = pwd
+}
+
+func (s *mySSID) Clone() SSID {
+	newSSID := *s
+	return &newSSID
 }
 
 func handler() gin.HandlerFunc {
 	var lock sync.Mutex
+
+	type Setting struct {
+		APMac        string
+		APName       string
+		WiredVlan    string
+		WirelessVlan string
+		SSID         string
+		Password     string
+	}
 
 	return func(ctx *gin.Context) {
 		lock.Lock()
 		defer lock.Unlock()
 
 		ctx.Header("Transfer-Encoding", "chunked")
-		logger := log.New(ctx.Writer, "", log.LstdFlags)
+		log := log.New(&flushWriter{ResponseWriter: ctx.Writer}, "", log.LstdFlags)
 
 		ac := ctx.PostForm("ac")
 		username := ctx.PostForm("username")
 		password := ctx.PostForm("password")
 		file, err := ctx.FormFile("file")
 		if err != nil {
-			logger.Println(err)
+			log.Println(err)
 			return
 		}
 
 		f, err := file.Open()
 		if err != nil {
-			logger.Println(err)
+			log.Println(err)
 			return
 		}
 		defer f.Close()
 
-		log.Println("processing csv file...")
+		log.Println("开始读取CSV文件...")
 
 		bufReader := bufio.NewReader(f)
 		loop := true
+		settings := make([]Setting, 0)
 		for i := 1; loop; i++ {
 			line, err := bufReader.ReadString('\n')
 			if err != nil {
 				if err == io.EOF {
 					loop = false
 				} else {
-					ctx.Writer.WriteString(err.Error())
+					log.Println(err)
 					return
 				}
 			}
 
 			if i == 1 {
-				log.Println("skip first line as header")
+				log.Println("第1行标题行，跳过")
 				continue
 			}
 
-		}
-
-		for range 30 {
-			time.Sleep(time.Second)
-			ctx.Writer.WriteString(time.Now().Format(time.DateTime) + "\n")
-			ctx.Writer.Flush()
-		}
-	}
-}
-
-/*
-func main1() {
-	var (
-		csv      string
-		ac       string
-		username string
-		password string
-	)
-
-	flag.StringVar(&csv, "csv", "", "csv files")
-	flag.StringVar(&ac, "ac", "", "ac address like http://192.168.1.1")
-	flag.StringVar(&username, "username", "", "ac username")
-	flag.StringVar(&password, "password", "", "ac password (encrypted), get from chrome network")
-	flag.Parse()
-
-	if csv == "" || ac == "" || username == "" || password == "" {
-		flag.Usage()
-		os.Exit(1)
-	}
-
-	data, err := os.ReadFile(csv)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	lines := strings.Split(string(data), "\n")
-	list := make([]Setting, 0)
-	for i, line := range lines {
-		if i == 0 {
-			continue
-		}
-		items := strings.Split(line, ",")
-		if len(items) != 6 {
-			continue
-		}
-		var s Setting
-		s.APMac = strings.TrimSpace(items[0])
-		s.APName = strings.TrimSpace(items[1])
-		s.WiredVlan = strings.TrimSpace(items[2])
-		s.WirelessVlan = strings.TrimSpace(items[3])
-		s.SSID = strings.TrimSpace(items[4])
-		s.Password = strings.TrimSpace(items[5])
-		s.APMac = tplink.SimplifyMAC(s.APMac)
-		list = append(list, s)
-	}
-
-	s := tplink.NewService(ac)
-	ctx := context.Background()
-	timeout := 3 * time.Second
-
-	func() {
-		ctx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-		err := s.Login(ctx, username, password)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}()
-
-	var groupList []tplink.Group
-	func() {
-		ctx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-
-		var err error
-		list, err := s.ListGroup(ctx)
-		if err != nil {
-			log.Fatal(err)
-		}
-		groupList = list
-	}()
-
-	var apList []tplink.AP
-	for _, group := range groupList {
-		func() {
-			ctx, cancel := context.WithTimeout(ctx, timeout)
-			defer cancel()
-
-			list, err := s.ListAP(ctx, group.GroupId)
-			if err != nil {
-				log.Fatal(err)
+			line = strings.TrimSpace(line)
+			if line == "" {
+				log.Printf("第%v行空行，跳过", i)
+				continue
 			}
-			apList = append(apList, list...)
-		}()
-	}
 
-	var ssidList []tplink.SSID
-	func() {
-		ctx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-
-		list, err := s.ListSSID(ctx)
-		if err != nil {
-			log.Fatal(err)
-		}
-		ssidList = list
-	}()
-
-	apmacs := bmap.NewMapFromSlice(apList, func(ap tplink.AP) string { return tplink.SimplifyMAC(ap.Mac) })
-	ssids := bmap.NewMapFromSlice(ssidList, func(ssid tplink.SSID) string { return ssid.SSID })
-	for _, set := range list {
-		ap, ok := apmacs[set.APMac]
-		if !ok {
-			fmt.Printf("apmac: %v not found on ac\n", set.APMac)
-			os.Exit(1)
-		}
-
-		ap.EntryName = set.APName
-		ap.PhyWireVlan1 = set.WiredVlan
-		ap.PhyWireVlan2 = set.WiredVlan
-		func() {
-			ctx, cancel := context.WithTimeout(ctx, timeout)
-			defer cancel()
-			err := s.SetAP(ctx, ap)
-			if err != nil {
-				log.Fatal(err)
+			items := strings.Split(line, ",")
+			if len(items) != 6 {
+				log.Printf("第%v行格式错误，`%v`", i, line)
+				return
 			}
-		}()
 
-		ssidHandler := s.SetSSID
-		ssid, ok := ssids[set.SSID]
-		if !ok {
-			ssidHandler = s.AddSSID
-			ssid = tplink.SSID{}
+			var s Setting
+			s.APMac = strings.TrimSpace(items[0])
+			s.APName = strings.TrimSpace(items[1])
+			s.WiredVlan = strings.TrimSpace(items[2])
+			s.WirelessVlan = strings.TrimSpace(items[3])
+			s.SSID = strings.TrimSpace(items[4])
+			s.Password = strings.TrimSpace(items[5])
+			s.APMac = SimplifyMAC(s.APMac)
+			settings = append(settings, s)
 		}
 
-		ssid.Auth = "3"
-		ssid.AutoBind = "off"
-		ssid.BwCtrlEnable = "0"
-		ssid.BwCtrlMode = "1"
-		ssid.Cipher = "2"
-		ssid.DefaultBindFreq = "771"
-		ssid.DefaultBindVlan = "0"
-		ssid.Desc = ""
-		ssid.DownLimit = "128"
-		ssid.Enable = "on"
-		ssid.Encryption = "1"
-		ssid.Isolate = "0"
-		ssid.Key = set.Password
-		ssid.KeyUpdateIntv = "86400"
-		ssid.SSID = set.SSID
-		ssid.SSIDCodeType = "1"
-		ssid.SSIDBrd = "1"
-		ssid.UpLimit = "128"
+		log.Printf("读取到%v条记录", len(settings))
 
-		func() {
-			ctx, cancel := context.WithTimeout(ctx, timeout)
-			defer cancel()
-			err := ssidHandler(ctx, ssid)
-			if err != nil {
-				log.Fatal(err)
-			}
-		}()
-	}
+		log.Printf("开始判断AC类型...")
 
-	// refresh ap list
-	apList = apList[:0]
-	for _, group := range groupList {
-		func() {
-			ctx, cancel := context.WithTimeout(ctx, timeout)
-			defer cancel()
+		var service ACService
 
-			list, err := s.ListAP(ctx, group.GroupId)
-			if err != nil {
-				log.Fatal(err)
-			}
-			apList = append(apList, list...)
-		}()
-	}
-
-	// refresh ssid list
-	ssidList = ssidList[:0]
-	func() {
-		ctx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-
-		list, err := s.ListSSID(ctx)
+		service = &TPService{Service: tplink.NewService(ac)}
+		ok, err := service.IsAC(ctx)
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			return
 		}
-		ssidList = list
-	}()
 
-	// get radioList
-	var radioList []tplink.Radio
-	func() {
-		ctx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
+		if !ok {
+			service = &MercuryService{Service: mercury.NewService(ac)}
+			ok, err := service.IsAC(ctx)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			if !ok {
+				log.Println("未检测到TP-Link或水星的AC")
+				return
+			}
+			log.Println("检测到AC类型为水星")
+		} else {
+			log.Println("检测到AC类型为TP-Link")
+		}
 
-		list, err := s.ListRadio(ctx)
+		log.Println("开始登陆AC...")
+		err = service.Login(ctx, username, password)
 		if err != nil {
-			log.Fatal(err)
-		}
-		radioList = list
-	}()
-
-	ssids = bmap.NewMapFromSlice(ssidList, func(ssid tplink.SSID) string { return ssid.SSID })
-	apnames := bmap.NewMapFromSlice(apList, func(ap tplink.AP) string { return ap.EntryName })
-	apradios := make(map[string][]tplink.Radio)
-	for _, radio := range radioList {
-		mac := tplink.SimplifyMAC(apnames[radio.ApName].Mac)
-		list, ok := apradios[mac]
-		if !ok {
-			list = make([]tplink.Radio, 0)
-		}
-		list = append(list, radio)
-		apradios[mac] = list
-	}
-
-	for _, set := range list {
-		radios, ok := apradios[set.APMac]
-		if !ok {
-			fmt.Printf("apmac %v no radio found", set.APMac)
-			os.Exit(1)
+			log.Println(err)
+			return
 		}
 
-		ssid, ok := ssids[set.SSID]
-		if !ok {
-			fmt.Printf("ssid %v missing on ac", set.SSID)
-			os.Exit(1)
+		log.Println("登陆AC成功！！！请不要再对AC有任何操作了！！！")
+
+		log.Println("开始获取AP列表...")
+		apList, err := service.ListAP(ctx)
+		if err != nil {
+			log.Println(err)
+			return
 		}
 
-		radioIds := bmap.NewMapFromSlice(radios, func(radio tplink.Radio) string { return radio.RfId }).Keys()
+		log.Printf("获取到%v个AP", len(apList))
 
-		func() {
-			ctx, cancel := context.WithTimeout(ctx, timeout)
-			defer cancel()
-			err := s.Bind(ctx, tplink.Bind{
-				ServId:  ssid.ServId,
+		log.Println("开始设置APName/有线VLAN...")
+		apmacs := bmap.NewMapFromSlice(apList, func(ap AP) string { return SimplifyMAC(ap.GetAPMac()) })
+		for i, set := range settings {
+			ap, ok := apmacs[set.APMac]
+			if !ok {
+				log.Printf("未在AC上找到APMAC [%v] 的AP，跳过 (%v/%v)", set.APMac, i+1, len(settings))
+				continue
+			}
+
+			newAP := ap.Clone()
+			newAP.SetAPName(set.APName)
+			newAP.SetWiredVlan(set.WiredVlan)
+			err = service.SetAP(ctx, ap, newAP)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			log.Printf("[%v] 设置APName: %v, VlanId: %v，成功 (%v/%v)", set.APMac, set.APName, set.WiredVlan, i+1, len(settings))
+		}
+
+		log.Println("开始获取SSID列表...")
+		ssidList, err := service.ListSSID(ctx)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		log.Printf("获取到%v个SSID", len(ssidList))
+
+		log.Println("开始设置SSID...")
+		ssids := bmap.NewMapFromSlice(ssidList, func(ssid SSID) string { return ssid.GetSSID() })
+		for i, set := range settings {
+			var act string
+			ssid, ok := ssids[set.SSID]
+			if !ok {
+				ssid = &mySSID{
+					ssid:     set.SSID,
+					password: set.Password,
+				}
+				err = service.AddSSID(ctx, ssid)
+				act = "新增"
+			} else {
+				newSSID := ssid.Clone()
+				newSSID.SetPassword(set.Password)
+				err = service.SetSSID(ctx, ssid, newSSID)
+				act = "修改"
+			}
+
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			log.Printf("%v SSID [%v] 密码: %v ，成功 (%v/%v)", act, set.SSID, set.Password, i+1, len(settings))
+		}
+
+		log.Println("重新获取AP列表...")
+		apList, err = service.ListAP(ctx)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		log.Println("重新获取SSID列表...")
+		ssidList, err = service.ListSSID(ctx)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		log.Println("获取射频列表...")
+		radioList, err := service.ListRadio(ctx)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		ssids = bmap.NewMapFromSlice(ssidList, func(ssid SSID) string { return ssid.GetSSID() })
+		apnames := bmap.NewMapFromSlice(apList, func(ap AP) string { return ap.GetAPName() })
+		apradios := make(map[string][]Radio)
+		for _, radio := range radioList {
+			apmac := SimplifyMAC(apnames[radio.GetAPName()].GetAPMac())
+			list, ok := apradios[apmac]
+			if !ok {
+				list = make([]Radio, 0)
+			}
+			list = append(list, radio)
+			apradios[apmac] = list
+		}
+
+		log.Println("开始将SSID绑定到AP的射频...")
+		for i, set := range settings {
+			radios, ok := apradios[set.APMac]
+			if !ok {
+				log.Printf("未找到APMAC [%v] 的射频，可能AP没上线，跳过 (%v/%v)", set.APMac, i+1, len(settings))
+				continue
+			}
+
+			ssid, ok := ssids[set.SSID]
+			if !ok {
+				log.Printf("没找到SSID [%v]，创建没成功？", set.SSID)
+				return
+			}
+
+			radioIds := bmap.NewMapFromSlice(radios, func(radio Radio) string { return radio.GetId() }).Keys()
+			err = service.Bind(ctx, Bind{
+				ServId:  ssid.GetId(),
 				VlanId:  set.WirelessVlan,
 				RadioId: radioIds,
 			})
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+				return
 			}
-		}()
+			log.Printf("SSID [%v] 绑定到 APMAC [%v]，成功 (%v/%v)", set.SSID, set.APMac, i+1, len(settings))
+		}
+
+		log.Println("大功告成!")
 	}
-	fmt.Println("all done.")
 }
-*/
+
+func SimplifyMAC(mac string) string {
+	mac = strings.ToLower(mac)
+	mac = strings.ReplaceAll(mac, "-", "")
+	mac = strings.ReplaceAll(mac, ":", "")
+	return mac
+}
+
+type flushWriter struct {
+	gin.ResponseWriter
+}
+
+func (w *flushWriter) Write(b []byte) (int, error) {
+	defer w.ResponseWriter.Flush()
+	return w.ResponseWriter.Write(b)
+}
