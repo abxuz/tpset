@@ -1,11 +1,135 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/css/element.css" />
+    <script src="/js/vue.js"></script>
+    <script src="/js/element.js"></script>
     <title>TP Set</title>
+    <style>
+        #app {
+            margin: 0 auto;
+            width: 400px;
+        }
+
+        .el-select .el-input {
+            width: 130px;
+        }
+
+        .el-input-group__prepend {
+            background-color: #fff;
+        }
+    </style>
 </head>
+
 <body>
-    
+    <div id="app" style="margin-top: 20px;">
+        <el-form :model="form" label-width="auto" size="small" v-loading="loading">
+            <el-form-item label="AC地址">
+                <el-input v-model="form.addr" placeholder="如：http://100.64.63.42:6080"></el-input>
+            </el-form-item>
+            <el-form-item label="用户名">
+                <el-input v-model="form.username"></el-input>
+            </el-form-item>
+            <el-form-item label="密码">
+                <el-input v-model="form.password"></el-input>
+            </el-form-item>
+            <el-form-item label="数据文件">
+                <el-upload :multiple="false" :show-file-list="false" :on-change="change" action="" :limit="1"
+                    :on-exceed="exceed" :auto-upload="false">
+                    <el-button slot="trigger" size="small" type="primary">选取文件</el-button>
+                    <el-button style="margin-left: 10px;" size="small" @click="download">下载模板</el-button>
+                    <span>{{form.file ? form.file.name : ''}}</span>
+                </el-upload>
+            </el-form-item>
+            <el-form-item>
+                <el-button type="primary" @click="submit">提交</el-button>
+            </el-form-item>
+        </el-form>
+        <el-input type="textarea" placeholder="结果" v-model="result" :readonly="true"
+            :autosize="{ minRows: 6, maxRows: 10 }"></el-input>
+    </div>
+    <script>
+        new Vue({
+            el: '#app',
+            data: function () {
+                return {
+                    form: {
+                        addr: '',
+                        username: 'admin',
+                        password: '',
+                        file: null,
+                    },
+                    loading: false,
+                    result: '',
+                }
+            },
+            methods: {
+                exceed(e) {
+                    this.form.file = e[0]
+                },
+                change(e) {
+                    this.form.file = e.raw
+                },
+                download() {
+                    window.open('/tpl.csv', '_blank')
+                },
+                valid() {
+                    if (!this.form.addr.match(/^https{0,1}:\/\/.+$/))
+                        throw Error('AC地址有误')
+                    if (!this.form.username)
+                        throw Error('用户名有误')
+                    if (!this.form.password)
+                        throw Error('密码有误')
+                    if (!this.form.file)
+                        throw Error('请选择数据文件')
+                },
+                submit() {
+                    try {
+                        this.valid()
+                    } catch (e) {
+                        this.$message.error(e.message)
+                        return
+                    }
+
+                    this.loading = true
+                    this.result = ""
+
+                    let form = new FormData()
+                    form.append('ac', this.form.addr)
+                    form.append('username', this.form.username)
+                    form.append('password', this.form.password)
+                    form.append('file', this.form.file)
+
+                    fetch('/handle', {
+                        method: 'post',
+                        body: form
+                    }).then(e => {
+                        const _this = this
+                        if (e.status != 200) throw Error(e.statusText)
+                        const reader = e.body.getReader()
+                        reader.read().then(function pump({ done, value }) {
+                            if (done) {
+                                _this.loading = false
+                                return
+                            }
+                            _this.result += new TextDecoder().decode(value)
+                            _this.$nextTick(() => {
+                                const t = document.querySelector('textarea');
+                                t.scrollTop = t.scrollHeight
+                            })
+                            return reader.read().then(pump)
+                        })
+                    }).catch(e => {
+                        this.loading = false
+                        this.$message.error(e.message)
+                    })
+                },
+            }
+        })
+    </script>
 </body>
+
 </html>

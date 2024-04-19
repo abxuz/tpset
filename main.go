@@ -1,10 +1,20 @@
 package main
 
 import (
+	"bufio"
 	"flag"
+	"io"
+	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"runtime"
+	"strings"
+	"sync"
+	"time"
 	"tpset/assets"
+
+	_ "time/tzdata"
 
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
@@ -17,6 +27,14 @@ type Setting struct {
 	WirelessVlan string
 	SSID         string
 	Password     string
+}
+
+func init() {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		panic(err)
+	}
+	time.Local = loc
 }
 
 func main() {
@@ -46,11 +64,81 @@ func main() {
 		r.Use(static.Serve("/", fs))
 	}
 
+	r.POST("/handle", handler())
+
 	s := &http.Server{
 		Addr:    addr,
 		Handler: r,
 	}
+
+	if runtime.GOOS == "darwin" {
+		go func() {
+			port := strings.LastIndex(addr, ":")
+			if port < 0 {
+				return
+			}
+			time.Sleep(time.Second)
+			exec.Command("open", "http://localhost:"+addr[port+1:]).Run()
+		}()
+	}
+
 	s.ListenAndServe()
+}
+
+func handler() gin.HandlerFunc {
+	var lock sync.Mutex
+
+	return func(ctx *gin.Context) {
+		lock.Lock()
+		defer lock.Unlock()
+
+		ctx.Header("Transfer-Encoding", "chunked")
+		logger := log.New(ctx.Writer, "", log.LstdFlags)
+
+		ac := ctx.PostForm("ac")
+		username := ctx.PostForm("username")
+		password := ctx.PostForm("password")
+		file, err := ctx.FormFile("file")
+		if err != nil {
+			logger.Println(err)
+			return
+		}
+
+		f, err := file.Open()
+		if err != nil {
+			logger.Println(err)
+			return
+		}
+		defer f.Close()
+
+		log.Println("processing csv file...")
+
+		bufReader := bufio.NewReader(f)
+		loop := true
+		for i := 1; loop; i++ {
+			line, err := bufReader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					loop = false
+				} else {
+					ctx.Writer.WriteString(err.Error())
+					return
+				}
+			}
+
+			if i == 1 {
+				log.Println("skip first line as header")
+				continue
+			}
+
+		}
+
+		for range 30 {
+			time.Sleep(time.Second)
+			ctx.Writer.WriteString(time.Now().Format(time.DateTime) + "\n")
+			ctx.Writer.Flush()
+		}
+	}
 }
 
 /*
